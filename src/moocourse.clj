@@ -1,25 +1,37 @@
 (ns moocourse
   (:require [com.biffweb :as biff]
-            [moocourse.email :as email]
-            [moocourse.app :as app]
-            [moocourse.home :as home]
-            [moocourse.worker :as worker]
-            [moocourse.schema :as schema]
             [moocourse.start :as start]
             [clojure.test :as test]
             [clojure.tools.logging :as log]
             [clojure.tools.namespace.repl :as tn-repl]
             [malli.core :as malc]
             [malli.registry :as malr]
-            [nrepl.cmdline :as nrepl-cmd]))
+            [nrepl.cmdline :as nrepl-cmd]
+            [ring.adapter.jetty9 :as jetty]))
+
+(defn use-jetty [{:biff/keys [host port handler]
+                  :or {host "localhost"
+                       port 8080}
+                  :as ctx}]
+  (let [server (jetty/run-jetty (fn [req]
+                                  (handler (merge ctx req)))
+                                {:host host
+                                 :port port
+                                 :join? false
+                                 :allow-null-path-info true})]
+    (log/info "Jetty running on" (str "http://" host ":" port))
+    (update ctx :biff/stop conj #(jetty/stop-server server))))
+
+(defn use-jetty-
+  "A Biff component that starts a Jetty web server."
+  [{:biff/keys [host port handler]
+    :or {host "localhost"
+         port 8080}
+    :as ctx}]
+  (use-jetty ctx))
 
 (def plugins
-  [app/plugin
-   (biff/authentication-plugin {})
-   home/plugin
-   schema/plugin
-   worker/plugin
-   start/plugin])
+  [start/plugin])
 
 (def routes [["" {:middleware [biff/wrap-site-defaults]}
               (keep :routes plugins)]
@@ -50,23 +62,16 @@
 
 (def initial-system
   {:biff/plugins #'plugins
-   :biff/send-email #'email/send-email
    :biff/handler #'handler
    :biff/malli-opts #'malli-opts
-   :biff.beholder/on-save #'on-save
-   :biff.xtdb/tx-fns biff/tx-fns
-   :moocourse/chat-clients (atom #{})})
+   :biff.beholder/on-save #'on-save})
 
 (defonce system (atom {}))
 
 (def components
   [biff/use-config
    biff/use-secrets
-   biff/use-xt
-   biff/use-queues
-   biff/use-tx-listener
-   biff/use-jetty
-   biff/use-chime
+   use-jetty-
    biff/use-beholder])
 
 (defn start []
